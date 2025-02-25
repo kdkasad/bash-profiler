@@ -66,7 +66,7 @@ EOF
 usage_analyze() {
     cat << EOF
 Usage:
-    $argv0 analyze [-h] [-p] [DATA_FILE]
+    $argv0 analyze [-h] [-p] [-g GROUP_MODE] [DATA_FILE]
 
 Description:
     Analyzes the raw profile data produced by \`$argv0 profile'.
@@ -83,9 +83,25 @@ Description:
     as the nesting indicator printed by \`set -x'. COMMAND is the command run.
 
 Options:
-    -h    Show this usage information.
-    -s    Sort the output by duration.
-    -t    Format the output in a table using column(1).
+    -h              Show this usage information.
+    -s              Sort the output by duration.
+    -g GROUP_MODE   Aggregate durations of separate commands. See the
+                    "Grouping" section below.
+
+Grouping:
+    By default, the analysis outputs the duration for each individual command.
+    This means that if the body of a loop runs 10 times, each command in the
+    body will be printed 10 times, with the duration each invocation took.
+
+    Grouping modes can be used to group the output into more useful bins. The
+    available modes are:
+        cmd    Group all commands with the same command line. Output will only
+               include the duration and command columns.
+        line   Group commands based on source file & line number. This option
+               is particularly useful for scripts with loops. Output will only
+               include the duration, source file, and line number columns.
+
+    Note that grouping can slow down analysis significantly.
 EOF
 }
 
@@ -107,7 +123,7 @@ profile() {
     shift $(( OPTIND - 1 ))
 
     # Workaround for weird behavior on Purdue systems
-    if [ "$BASH_ENV" = '/usr/share/lmod/lmod/init/bash' ]
+    if [ "${BASH_ENV:-}" = '/usr/share/lmod/lmod/init/bash' ]
     then
         unset BASH_ENV
     fi
@@ -117,7 +133,7 @@ profile() {
     # Send trace output to $tracefd
     export BASH_XTRACEFD="$tracefd"
     # Print microsecond time in trace output
-    export PS4='+ $EPOCHREALTIME '
+    export PS4='+\011$EPOCHREALTIME\011${BASH_SOURCE[0]}\011$LINENO\011${FUNCNAME[0]:--}\011'
     # Enable tracing, run script, and disable tracing
     set -x
     bash -x -- "$@"
@@ -127,24 +143,29 @@ profile() {
     export -n BASH_XTRACEFD PS4
 
     # Remove "source" line from output and change last line to only include the
-    # timestamp with no name.
-    sed -i -e 1d -e '$s/\(+\+ [0-9\.]\+\) .*$/\1/' "$file"
+    # nest level and timestamp.
+    sed -i -e 1d -e '$s/^\(+\+\t[0-9\.]\+\)\t.*$/\1/' "$file"
 }
 
 analyze() {
     # Set defaults
-    local file=profiler.log
+    local file=profiler.log groupmode=
     local -a sortcmd=(cat) tablecmd=(cat)
 
     # Parse options
-    while getopts ":hst" opt
+    while getopts ":hsg:" opt
     do
         case "$opt" in
             \?) echo "Unrecognized option: \`-$OPTARG'" >&2; exit 2 ;;
             :) echo "Missing argument for option \`-$OPTARG'" >&2; exit 2 ;;
             h) usage_analyze; exit 0 ;;
             s) sortcmd=(sort -n) ;;
-            t) tablecmd=(column -t -l 3 -N 'DURATION,NESTLVL,CMD' -R DURATION) ;;
+            g)
+                case "$OPTARG" in
+                    cmd|line) groupmode="$OPTARG" ;;
+                    *) echo "Invalid grouping mode \`$OPTARG'." >&2; exit 2 ;;
+                esac
+                ;;
         esac
     done
     shift $(( OPTIND - 1 ))
@@ -155,29 +176,77 @@ analyze() {
         file="$1"
     fi
 
-    # Declare variables
-    local timestamp nestlvl cmd next_timestamp next_nestlvl next_cmd duration
-    # Open file as a file descriptor so we can re-use the same stream
-    exec {fd}<"$file";
-    # Read first line
-    read -r nestlvl timestamp cmd <&"$fd"
-    # Process each line
-    while read -r next_nestlvl next_timestamp next_cmd
-    do
-        duration="$(echo "scale=6; $next_timestamp" - "$timestamp" | bc)"
-        # Prepend leading zero
-        if [ "${duration:0:1}" = . ]
-        then
-            duration="0$duration"
-        fi
-        echo "$duration" "$nestlvl" "$cmd"
+    # Function to calculate duration of each command
+    calc_durations() {
+        local file="$1"
+        # Declare variables
+        local line nextline duration
+        # Open file as a file descriptor so we can re-use the same stream
+        exec {fd}<"$file";
+        # Read first line
+        IFS=$'\t' read -r -a line <&"$fd"
+        # Process each line
+        while IFS=$'\t' read -r -a nextline
+        do
+            # Line is nestlvl timestamp file line function cmd
+            duration="$(bc <<< "scale=6; ${nextline[1]} - ${line[1]}")"
+            # Prepend leading zero
+            if [ "${duration:0:1}" = . ]
+            then
+                duration="0$duration"
+            fi
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$duration" "${line[0]}" "${line[2]}" "${line[3]}" "${line[4]}" "${line[5]}"
+            #   duration    nestlvl      file         line         function     cmd
 
-        timestamp="$next_timestamp"
-        nestlvl="$next_nestlvl"
-        cmd="$next_cmd"
-    done <&"$fd" | "${sortcmd[@]}" | "${tablecmd[@]}"
-    # Close file descriptor
-    exec {fd}<&-
+            line=("${nextline[@]}")
+        done <&"$fd"
+        # Close file descriptor
+        exec {fd}<&-
+    }
+
+    # Function to perform grouping
+    do_groupings() {
+        local mode="$1"
+
+        # Map used for grouping
+        local -A groupmap
+
+        local duration _nestlvl file line _function cmd
+        while IFS=$'\t' read -r duration _nestlvl file line _function cmd
+        do
+            local key
+            case "$mode" in
+                cmd) key="$cmd" ;;
+                line) key="$file"$'\t'"$line" ;;
+            esac
+            if [ -z "${groupmap["$key"]:-}" ]
+            then
+                groupmap["$key"]="$duration"
+            else
+                groupmap["$key"]="$(bc <<< "scale=6; $duration + ${groupmap["$key"]}")"
+            fi
+        done
+
+        # Print final map
+        for key in "${!groupmap[@]}"
+        do
+            local duration="${groupmap["$key"]}"
+            # Prepend leading zero
+            if [ "${duration:0:1}" = . ]
+            then
+                duration="0$duration"
+            fi
+            printf '%s\t%s\n' "$duration" "$key"
+        done
+    }
+
+    if [ -n "$groupmode" ]
+    then
+        calc_durations "$file" | do_groupings "$groupmode"
+    else
+        calc_durations "$file"
+    fi | "${sortcmd[@]}" | "${tablecmd[@]}"
 }
 
 # Parse arguments
