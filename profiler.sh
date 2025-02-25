@@ -14,13 +14,15 @@
 #      without express written permission from the author.
 #
 
+set -e -u -o pipefail
+
 # Check Bash version
-if [ -z "$BASH_VERSINFO" ]
+if [ -z "$BASH_VERSION" ]
 then
     echo 'Cannot detect Bash version. Are you running this with Bash?' >&2
     exit 1
 fi
-if [ "${BASH_VERSINFO[0]}" -lt 4 ] || [ "${BASH_VERSINFO[0]}" -eq 4 -a "${BASH_VERSINFO[1]}" -lt 1 ]
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 1 ]
 then
     echo 'Bash version 4.1 or greater is required for this script.' >&2
     echo "You appear to be running version $BASH_VERSION." >&2
@@ -135,7 +137,7 @@ analyze() {
             :) echo "Missing argument for option \`-$OPTARG'" >&2; exit 2 ;;
             h) usage_analyze; exit 0 ;;
             s) sortcmd=(sort -n) ;;
-            t) tablecmd=(column -t -l 3 -N DURATION,NESTLVL,CMD -R DURATION) ;;
+            t) tablecmd=(column -t -l 3 -N 'DURATION,NESTLVL,CMD' -R DURATION) ;;
         esac
     done
     shift $(( OPTIND - 1 ))
