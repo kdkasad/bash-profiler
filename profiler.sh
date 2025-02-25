@@ -110,12 +110,16 @@ profile() {
     export PS4='+ $EPOCHREALTIME '
     # Open a file descriptor for writing to $file and save it in $tracefd
     exec {tracefd}>"$file"
-    # Send trace output to $tracefd
-    BASH_XTRACEFD="$tracefd"
-    # Enable tracing, source script, and disable tracing
-    set -x
-    source "$@"
-    set +x
+    # Run script in subshell
+    (
+        # Send trace output to $tracefd
+        BASH_XTRACEFD="$tracefd"
+        # Enable tracing, run script, and disable tracing
+        set -x
+        # shellcheck source=/dev/null
+        source "$@"
+        set +x
+    )
     # Un-redirect the trace output. This also closes the file descriptor.
     unset BASH_XTRACEFD
 
