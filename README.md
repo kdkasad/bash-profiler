@@ -2,6 +2,10 @@
 
 A Bash script to profile Bash scripts.
 
+<div align=center>
+<a href="https://asciinema.org/a/Y85qgYo76n6MskQaCS51iBopI" target="_blank"><img src="https://asciinema.org/a/Y85qgYo76n6MskQaCS51iBopI.svg" /></a>
+</div>
+
 # Features
 
 - [x] Get timings of shell script execution with per-command
