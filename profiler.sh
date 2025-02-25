@@ -106,22 +106,19 @@ profile() {
     done
     shift $(( OPTIND - 1 ))
 
-    # Print microsecond time in trace output
-    export PS4='+ $EPOCHREALTIME '
     # Open a file descriptor for writing to $file and save it in $tracefd
     exec {tracefd}>"$file"
-    # Run script in subshell
-    (
-        # Send trace output to $tracefd
-        BASH_XTRACEFD="$tracefd"
-        # Enable tracing, run script, and disable tracing
-        set -x
-        # shellcheck source=/dev/null
-        source "$@"
-        set +x
-    )
+    # Send trace output to $tracefd
+    export BASH_XTRACEFD="$tracefd"
+    # Print microsecond time in trace output
+    export PS4='+ $EPOCHREALTIME '
+    # Enable tracing, run script, and disable tracing
+    set -x
+    bash -x -- "$@"
+    set +x
     # Un-redirect the trace output. This also closes the file descriptor.
     unset BASH_XTRACEFD
+    export -n BASH_XTRACEFD PS4
 
     # Remove "source" line from output and change last line to only include the
     # timestamp with no name.
