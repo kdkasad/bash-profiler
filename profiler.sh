@@ -143,6 +143,11 @@ analyze() {
     while read -r next_nestlvl next_timestamp next_cmd
     do
         duration="$(echo "scale=6; $next_timestamp" - "$timestamp" | bc)"
+        # Prepend leading zero
+        if [ "${duration:0:1}" = . ]
+        then
+            duration="0$duration"
+        fi
         echo "$duration" "$nestlvl" "$cmd"
 
         timestamp="$next_timestamp"
