@@ -106,6 +106,12 @@ profile() {
     done
     shift $(( OPTIND - 1 ))
 
+    # Workaround for weird behavior on Purdue systems
+    if [ "$BASH_ENV" = '/usr/share/lmod/lmod/init/bash' ]
+    then
+        unset BASH_ENV
+    fi
+
     # Open a file descriptor for writing to $file and save it in $tracefd
     exec {tracefd}>"$file"
     # Send trace output to $tracefd
