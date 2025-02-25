@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 #
 # Profiles execution of shell scripts
@@ -13,6 +13,19 @@
 #   3. This script may not be used as the basis for any CS 252 assignments
 #      without express written permission from the author.
 #
+
+# Check Bash version
+if [ -z "$BASH_VERSINFO" ]
+then
+    echo 'Cannot detect Bash version. Are you running this with Bash?' >&2
+    exit 1
+fi
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] || [ "${BASH_VERSINFO[0]}" -eq 4 -a "${BASH_VERSINFO[1]}" -lt 1 ]
+then
+    echo 'Bash version 4.1 or greater is required for this script.' >&2
+    echo "You appear to be running version $BASH_VERSION." >&2
+    exit 1
+fi
 
 # Save script name
 argv0="$0"
